@@ -1,0 +1,14 @@
+# AgentBox firewall gateway image
+FROM alpine:latest
+
+RUN apk add --no-cache dnsmasq ipset iptables libcap su-exec && \
+    dnsmasq_path="$(command -v dnsmasq)" && \
+    setcap cap_net_admin,cap_net_bind_service=+ep "$dnsmasq_path" && \
+    if ! id -u dnsmasq >/dev/null 2>&1; then \
+        adduser -S -D -H -s /sbin/nologin dnsmasq; \
+    fi
+
+COPY firewall-entrypoint.sh /usr/local/bin/firewall-entrypoint.sh
+RUN chmod +x /usr/local/bin/firewall-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/firewall-entrypoint.sh"]

@@ -23,6 +23,10 @@ readonly DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 readonly ENTRYPOINT_PATH="${SCRIPT_DIR}/entrypoint.sh"
 readonly IMAGE_NAME="agentbox:latest"
 readonly CONTAINER_PREFIX="agentbox"
+readonly FIREWALL_IMAGE_NAME="agentbox-firewall:latest"
+readonly FIREWALL_DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile.firewall"
+readonly FIREWALL_ENTRYPOINT_PATH="${SCRIPT_DIR}/firewall-entrypoint.sh"
+readonly FIREWALL_CONFIG_TEMPLATE="${SCRIPT_DIR}/firewall.conf.default"
 
 # Colors for output
 readonly RED='\033[0;31m'
@@ -123,6 +127,104 @@ build_image() {
     else
         log_error "Failed to build image"
         return 1
+    fi
+}
+
+firewall_needs_rebuild() {
+    local dockerfile_hash=$(calculate_hash "$FIREWALL_DOCKERFILE_PATH")
+    local entrypoint_hash=$(calculate_hash "$FIREWALL_ENTRYPOINT_PATH")
+    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+
+    if ! docker image inspect "$FIREWALL_IMAGE_NAME" &> /dev/null; then
+        return 0
+    fi
+
+    local stored_hash=$(docker inspect "$FIREWALL_IMAGE_NAME" \
+        --format '{{ index .Config.Labels "agentbox.firewall.hash" }}' 2>/dev/null || echo "none")
+
+    [[ "$combined_hash" != "$stored_hash" ]]
+}
+
+build_firewall_image() {
+    local dockerfile_hash=$(calculate_hash "$FIREWALL_DOCKERFILE_PATH")
+    local entrypoint_hash=$(calculate_hash "$FIREWALL_ENTRYPOINT_PATH")
+    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+
+    log_build "Building firewall gateway image..."
+
+    if docker build \
+        --label "agentbox.firewall.hash=${combined_hash}" \
+        -t "$FIREWALL_IMAGE_NAME" \
+        -f "$FIREWALL_DOCKERFILE_PATH" \
+        "$SCRIPT_DIR" &>/dev/null; then
+        log_success "Firewall gateway image built"
+        return 0
+    fi
+
+    log_error "Failed to build firewall gateway image"
+    return 1
+}
+
+get_gateway_container_name() {
+    local container_name="$1"
+    echo "${container_name}-gateway"
+}
+
+ensure_firewall_config() {
+    local firewall_config="${HOME}/.agentbox/firewall.conf"
+
+    if [[ ! -f "$firewall_config" ]]; then
+        mkdir -p "${HOME}/.agentbox"
+        cp "$FIREWALL_CONFIG_TEMPLATE" "$firewall_config"
+        log_info "Created firewall allowlist at ~/.agentbox/firewall.conf" >&2
+    fi
+
+    echo "$firewall_config"
+}
+
+start_gateway_container() {
+    local container_name="$1"
+    local -n port_args_ref=$2
+    local gateway_name
+    gateway_name=$(get_gateway_container_name "$container_name")
+
+    if firewall_needs_rebuild; then
+        build_firewall_image || return 1
+    fi
+
+    local firewall_config
+    firewall_config=$(ensure_firewall_config)
+    local firewall_env=()
+    if [[ -n "${FIREWALL_DNS:-}" ]]; then
+        firewall_env=(-e "FIREWALL_DNS=${FIREWALL_DNS}")
+    fi
+
+    if docker ps -aq -f "name=^${gateway_name}$" | grep -q .; then
+        docker rm -f "$gateway_name" &>/dev/null || true
+    fi
+
+    local run_output
+    if ! run_output=$(docker run -d --rm \
+        --name "$gateway_name" \
+        --cap-add=NET_ADMIN \
+        --cap-add=NET_RAW \
+        "${port_args_ref[@]}" \
+        "${firewall_env[@]}" \
+        -v "${firewall_config}:/etc/agentbox/firewall.conf:ro" \
+        "$FIREWALL_IMAGE_NAME" 2>&1); then
+        log_error "Failed to start firewall gateway container"
+        echo "$run_output" >&2
+        return 1
+    fi
+}
+
+stop_gateway_container() {
+    local container_name="$1"
+    local gateway_name
+    gateway_name=$(get_gateway_container_name "$container_name")
+
+    if docker ps -q -f "name=^${gateway_name}$" | grep -q .; then
+        docker stop "$gateway_name" &>/dev/null || true
     fi
 }
 
@@ -240,7 +342,8 @@ run_container() {
     local container_name="$1"
     local -n extra_dirs_to_mount=$2
     local tool="$3"
-    shift 3
+    local restrict_network="$4"
+    shift 4
 
     # Check if first arg is "shell" mode
     local shell_mode=false
@@ -397,10 +500,25 @@ run_container() {
         fi
     done
 
+    local network_args=()
+    if [[ "$restrict_network" == "true" ]]; then
+        if start_gateway_container "$container_name" port_args; then
+            network_args+=(--network "container:$(get_gateway_container_name "$container_name")")
+            log_info "Network restricted via gateway firewall"
+            trap "stop_gateway_container '$container_name'" EXIT
+            port_args=()
+        else
+            log_error "Failed to start firewall gateway. Use --allow-all-network to bypass."
+            exit 1
+        fi
+    else
+        log_warning "Network restrictions disabled - container has unrestricted internet access"
+    fi
+
     # Run ephemeral container with --rm
     docker run -it --rm \
         --name "$container_name" \
-        --hostname "agentbox-$PROJECT_NAME" \
+        "${network_args[@]}" \
         "${port_args[@]}" \
         "${mount_opts[@]}" \
         "${env_file_args[@]}" \
@@ -424,6 +542,7 @@ Options:
     -p PORT                 Forward a port from host to container (can be used multiple times)
     --rebuild               Force rebuild of the image
     --add-dir DIR           Mount additional directory (can be used multiple times)
+    --allow-all-network     Disable network restrictions for this run
 
 Commands:
     shell [--admin]         Start interactive shell instead of Claude CLI
@@ -446,6 +565,7 @@ Examples:
     agentbox --rebuild                  # Force rebuild image
     agentbox ssh-init                   # Set up SSH for AgentBox
     AGENTBOX_TOOL=opencode agentbox     # Use env var to select tool
+    AGENTBOX_FIREWALL=disabled agentbox # Disable network restrictions
 
 Containers are ephemeral and automatically removed when you exit.
 Package caches and shell history persist between sessions.
@@ -499,6 +619,7 @@ main() {
     declare -a ports=()
     local extra_dirs=()
     local tool="${AGENTBOX_TOOL:-claude}"
+    local restrict_network=true
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -537,6 +658,10 @@ main() {
                 tool="$1"
                 shift
                 ;;
+            --allow-all-network)
+                restrict_network=false
+                shift
+                ;;
             shell)
                 shell_mode=true
                 shift
@@ -564,6 +689,10 @@ main() {
     if [[ "$tool" != "claude" && "$tool" != "opencode" ]]; then
         log_error "Invalid tool: $tool (must be 'claude' or 'opencode')"
         exit 1
+    fi
+
+    if [[ "${AGENTBOX_FIREWALL:-enabled}" == "disabled" ]]; then
+        restrict_network=false
     fi
 
     # Check Docker
@@ -605,12 +734,12 @@ main() {
     # Run or attach to container
     if [[ "$shell_mode" == "true" ]]; then
         if [[ "$admin_mode" == "true" ]]; then
-            run_container "$container_name" validated_dirs "$tool" "shell" "--admin" "${cmd_args[@]}"
+            run_container "$container_name" validated_dirs "$tool" "$restrict_network" "shell" "--admin" "${cmd_args[@]}"
         else
-            run_container "$container_name" validated_dirs "$tool" "shell" "${cmd_args[@]}"
+            run_container "$container_name" validated_dirs "$tool" "$restrict_network" "shell" "${cmd_args[@]}"
         fi
     else
-        run_container "$container_name" validated_dirs "$tool" "${cmd_args[@]}"
+        run_container "$container_name" validated_dirs "$tool" "$restrict_network" "${cmd_args[@]}"
     fi
 }
 

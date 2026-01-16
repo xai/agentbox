@@ -10,6 +10,7 @@ A Docker-based development environment for running agentic coding tools in a mor
 - **Multi-Tool Support**: All agentic coding tools are supported, some built-in, others [via prompt](#adding-tools).
 - **Unified Development Environment**: Single Docker image with Python, Node.js, Java, and Shell support
 - **Isolated SSH**: Dedicated SSH directory for secure Git operations
+- **Network Allowlist**: Gateway firewall restricts outbound network access to approved domains
 - **Low-Maintenance Philosophy**: Always uses latest LTS tool versions, rebuilds container automatically when necessary
 
 ## Requirements
@@ -87,6 +88,45 @@ Persistent data (survives container removal):
   History: ~/.agentbox/projects/agentbox-<hash>/history/
   Claude: ~/.claude
   OpenCode: ~/.config/opencode and ~/.local/share/opencode
+```
+
+## Network Firewall
+
+AgentBox runs a per-project firewall gateway container that restricts outbound network access to an allowlist of domains.
+The agent container shares the gateway network namespace, so it cannot modify the firewall.
+
+Configuration:
+- Allowlist file: `~/.agentbox/firewall.conf`
+- Default allowlist template: `firewall.conf.default` (copied on first run)
+
+DNS resolution:
+- The gateway runs `dnsmasq` as the `dnsmasq` user (not root) with file capabilities for port 53 and ipset updates.
+- To override upstream resolvers, set `FIREWALL_DNS="1.1.1.1 8.8.8.8"` before starting AgentBox.
+- If you change firewall scripts, rebuild the firewall image so the gateway picks up the update.
+
+How it works:
+- The gateway writes `ipset=/domain/agentbox_allowed` rules into `/etc/dnsmasq.d/agentbox.conf` for each allowlisted domain.
+- When `dnsmasq` resolves an allowed domain, it adds the IPs to the `agentbox_allowed` ipset.
+- The firewall allows outbound traffic only to IPs in that ipset.
+- Because filtering is IP-based, any hostnames that resolve to those IPs are also reachable (for example, shared CDN endpoints). This is a DNS allowlist, not a full hostname-aware security boundary.
+
+Inspecting:
+- Find the gateway container name: `docker ps --format '{{.Names}}' | grep gateway`
+- View the generated dnsmasq config: `docker exec <gateway_name> cat /etc/dnsmasq.d/agentbox.conf`
+- View current allowed IPs: `docker exec <gateway_name> ipset list agentbox_allowed`
+- Raw ipset dump: `docker exec <gateway_name> ipset save agentbox_allowed`
+
+Troubleshooting:
+- If DNS is failing, confirm the gateway has upstream resolvers (`FIREWALL_DNS` or `/etc/resolv.conf`) and that `dnsmasq` is running as the `dnsmasq` user.
+- If requests are blocked, check whether the target IP appears in `agentbox_allowed` and that `dnsmasq` resolved the domain you expect.
+
+Disable for a run:
+```bash
+agentbox --allow-all-network
+```
+Or permanently:
+```bash
+AGENTBOX_FIREWALL=disabled agentbox
 ```
 
 ## Languages and Tools

@@ -1,0 +1,48 @@
+# AgentBox firewall allowlist
+# One domain per line. Subdomains are allowed automatically.
+# Example: github.com allows api.github.com, raw.githubusercontent.com, etc.
+
+# === WHITELISTED DOMAINS ===
+
+# Anthropic / Claude
+anthropic.com
+claude.ai
+claude.com
+
+# GitHub
+github.com
+githubusercontent.com
+githubassets.com
+
+# GitLab
+gitlab.com
+
+# npm (Node.js)
+npmjs.org
+npmjs.com
+
+# PyPI (Python)
+pypi.org
+pythonhosted.org
+
+# Maven / Gradle (Java)
+maven.org
+maven.apache.org
+gradle.org
+
+# Go modules
+golang.org
+googleapis.com
+
+# Rust / Cargo
+crates.io
+
+# Common CDNs used by package registries
+cloudflare.com
+cloudflare.net
+fastly.net
+akamaized.net
+
+# SSL/TLS certificate validation
+digicert.com
+letsencrypt.org
