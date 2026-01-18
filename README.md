@@ -101,8 +101,14 @@ Configuration:
 
 DNS resolution:
 - The gateway runs `dnsmasq` as the `dnsmasq` user (not root) with file capabilities for port 53 and ipset updates.
-- To override upstream resolvers, set `FIREWALL_DNS="1.1.1.1 8.8.8.8"` before starting AgentBox.
+- To override upstream resolvers, set `AGENTBOX_FIREWALL_DNS="1.1.1.1 8.8.8.8"` before starting AgentBox.
 - If you change firewall scripts, rebuild the firewall image so the gateway picks up the update.
+
+Transparent proxy (optional, HTTPS + HTTP):
+- Disabled by default; enable SNI-based HTTPS filtering without setting `HTTPS_PROXY` by exporting `AGENTBOX_FIREWALL_PROXY=transparent`.
+- The proxy listens on port `443` (required for HTTPS SNI proxying).
+- HTTP (port `80`) is also proxied using the `Host` header when enabled.
+- Connections without SNI will be blocked when the proxy is enabled.
 
 How it works:
 - The gateway writes `ipset=/domain/agentbox_allowed` rules into `/etc/dnsmasq.d/agentbox.conf` for each allowlisted domain.
@@ -117,7 +123,7 @@ Inspecting:
 - Raw ipset dump: `docker exec <gateway_name> ipset save agentbox_allowed`
 
 Troubleshooting:
-- If DNS is failing, confirm the gateway has upstream resolvers (`FIREWALL_DNS` or `/etc/resolv.conf`) and that `dnsmasq` is running as the `dnsmasq` user.
+- If DNS is failing, confirm the gateway has upstream resolvers (`AGENTBOX_FIREWALL_DNS` or `/etc/resolv.conf`) and that `dnsmasq` is running as the `dnsmasq` user.
 - If requests are blocked, check whether the target IP appears in `agentbox_allowed` and that `dnsmasq` resolved the domain you expect.
 
 Disable for a run:

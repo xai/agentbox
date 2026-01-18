@@ -1,9 +1,11 @@
 # AgentBox firewall gateway image
 FROM alpine:latest
 
-RUN apk add --no-cache dnsmasq ipset iptables libcap su-exec && \
+RUN apk add --no-cache dnsmasq ipset iptables libcap sniproxy su-exec && \
     dnsmasq_path="$(command -v dnsmasq)" && \
+    sniproxy_path="$(command -v sniproxy)" && \
     setcap cap_net_admin,cap_net_bind_service=+ep "$dnsmasq_path" && \
+    setcap cap_net_bind_service=+ep "$sniproxy_path" && \
     if ! id -u dnsmasq >/dev/null 2>&1; then \
         adduser -S -D -H -s /sbin/nologin dnsmasq; \
     fi

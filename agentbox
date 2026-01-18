@@ -195,8 +195,14 @@ start_gateway_container() {
     local firewall_config
     firewall_config=$(ensure_firewall_config)
     local firewall_env=()
-    if [[ -n "${FIREWALL_DNS:-}" ]]; then
-        firewall_env=(-e "FIREWALL_DNS=${FIREWALL_DNS}")
+    if [[ -n "${AGENTBOX_FIREWALL_DNS:-}" ]]; then
+        firewall_env+=(-e "AGENTBOX_FIREWALL_DNS=${AGENTBOX_FIREWALL_DNS}")
+    fi
+    if [[ -n "${AGENTBOX_FIREWALL_PROXY:-}" ]]; then
+        firewall_env+=(-e "AGENTBOX_FIREWALL_PROXY=${AGENTBOX_FIREWALL_PROXY}")
+    fi
+    if [[ -n "${AGENTBOX_FIREWALL_PROXY_PORT:-}" ]]; then
+        firewall_env+=(-e "AGENTBOX_FIREWALL_PROXY_PORT=${AGENTBOX_FIREWALL_PROXY_PORT}")
     fi
 
     if docker ps -aq -f "name=^${gateway_name}$" | grep -q .; then
