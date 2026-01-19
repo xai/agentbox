@@ -5,7 +5,7 @@ CONFIG_FILE="${AGENTBOX_FIREWALL_CONFIG:-/etc/agentbox/firewall.conf}"
 DNSMASQ_CONF="/etc/dnsmasq.d/agentbox.conf"
 IPSET_NAME="agentbox_allowed"
 SNIPROXY_CONF="/etc/sniproxy.conf"
-PROXY_MODE="${AGENTBOX_FIREWALL_PROXY:-}"
+PROXY_MODE="${AGENTBOX_FIREWALL_PROXY:-transparent}"
 PROXY_PORT="${AGENTBOX_FIREWALL_PROXY_PORT:-443}"
 HTTP_PROXY_PORT=80
 proxy_enabled=false
@@ -69,7 +69,10 @@ mkdir -p /etc/dnsmasq.d
 } > "$DNSMASQ_CONF"
 
 case "$PROXY_MODE" in
-    1|true|enabled|transparent)
+    0|false|disabled|off)
+        proxy_enabled=false
+        ;;
+    *)
         proxy_enabled=true
         ;;
 esac

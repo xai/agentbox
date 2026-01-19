@@ -104,11 +104,12 @@ DNS resolution:
 - To override upstream resolvers, set `AGENTBOX_FIREWALL_DNS="1.1.1.1 8.8.8.8"` before starting AgentBox.
 - If you change firewall scripts, rebuild the firewall image so the gateway picks up the update.
 
-Transparent proxy (optional, HTTPS + HTTP):
-- Disabled by default; enable SNI-based HTTPS filtering without setting `HTTPS_PROXY` by exporting `AGENTBOX_FIREWALL_PROXY=transparent`.
+Transparent proxy (HTTPS + HTTP):
+- Enabled by default; uses SNI-based HTTPS filtering without requiring `HTTPS_PROXY`.
 - The proxy listens on port `443` (required for HTTPS SNI proxying).
-- HTTP (port `80`) is also proxied using the `Host` header when enabled.
-- Connections without SNI will be blocked when the proxy is enabled.
+- HTTP (port `80`) is also proxied using the `Host` header.
+- Connections without SNI are blocked.
+- Disable via `AGENTBOX_FIREWALL_PROXY=disabled` to fall back to plain DNS/IP allowlisting.
 
 How it works:
 - The gateway writes `ipset=/domain/agentbox_allowed` rules into `/etc/dnsmasq.d/agentbox.conf` for each allowlisted domain.
